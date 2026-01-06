@@ -135,6 +135,8 @@ conda activate ia_ama
 
 pip install torch>=2.0 transformers>=4.40 peft>=0.10 tqdm numpy sentencepiece scikit-learn
 
+```
+
 If you plan to run Mixed-SFT baselines, also install ms-swift following its official guide: https://github.com/modelscope/ms-swift
 
 ---
@@ -146,14 +148,10 @@ If you plan to run Mixed-SFT baselines, also install ms-swift following its offi
 
 ## 1) Training (IA-AMA)
 
-Go to the folder:
-
-```bash
+```
 cd IA-AMA_code
-
-run training：
 python train.py --config_json config.example.json
-
+```
 
 ## 7. Citation
 
