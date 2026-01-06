@@ -1,10 +1,18 @@
 # IA-AMA
 The data and code for the paper: BiMentalGLM: An Instruction-Aware Asymmetric Modular Adapter Framework for Bilingual Mental Health Analysis
 
+This repository provides:
+- **Datasets** used in the paper (public links + release status).
+- **Expert few-shot seeds** for GPT-4 explanation prompting: `Expert_data/`
+- **Training and evaluation code** for BiMentalGLM (IA-AMA) and multiple baselines:
+  - IA-AMA (our method): `IA-AMA_code/`
+  - Cross-lingual small PLMs: `Multilingual_PLMs_Code/`
+  - Mixed-SFT bilingual baselines (ms-swift): `Mixed-SFT Baselines (Bilingual) code/`
+
+---
+
 
 # Dataset
-
-This repository provides datasets and resources for fine-tuning and evaluating large language models on **mental health analysis tasks** across English and Chinese social media platforms.
 
 ---
 
@@ -94,6 +102,58 @@ The following pretrained model is used as base models for fine-tuning and evalua
 - All data are anonymized and collected in accordance with platform policies and research ethics requirements.
 
 ---
+
+
+
+# Environment
+
+We recommend **Python ≥ 3.9** with a **CUDA-enabled GPU** environment.
+
+---
+
+### Dependencies Table
+
+| Category | Package | Recommended Version | Notes |
+|---|---|---|---|
+| Runtime | Python | ≥ 3.9 | Recommended via conda |
+| Deep Learning | PyTorch | ≥ 2.0 | Install the CUDA build matching your driver |
+| Transformers | transformers | ≥ 4.40 | Required for model/tokenizer loading |
+| LoRA | peft | ≥ 0.10 | Required for multi-adapter LoRA |
+| Tokenization | sentencepiece | latest | Often required by some tokenizers |
+| Utilities | numpy | latest | Basic dependency |
+| Progress | tqdm | latest | Progress bar |
+| Metrics (optional) | scikit-learn | ≥ 1.0 | Only required for Micro-F1 evaluation |
+| Baselines (optional) | ms-swift | latest | Only needed for Mixed-SFT baseline folder |
+
+---
+
+### Setup
+
+```bash
+conda create -n ia_ama python=3.9
+conda activate ia_ama
+
+pip install torch>=2.0 transformers>=4.40 peft>=0.10 tqdm numpy sentencepiece scikit-learn
+
+If you plan to run Mixed-SFT baselines, also install ms-swift following its official guide: https://github.com/modelscope/ms-swift
+
+---
+
+
+# How to Run (IA-AMA_code)
+
+> **Note:** All paths and hyperparameters are provided by the user via CLI/config to avoid exposing private settings.
+
+## 1) Training (IA-AMA)
+
+Go to the folder:
+
+```bash
+cd IA-AMA_code
+
+run training：
+python train.py --config_json config.example.json
+
 
 ## 7. Citation
 
