@@ -166,7 +166,7 @@ output_dir/
 Inference / Evaluation (Interactive)
 
 ```
-python test.py \
+python evaluate.py \
   --mode interactive \
   --model_path /path/to/GLM-4-9B-Chat \
   --epoch_dir /path/to/output_dir/epoch_xx \
