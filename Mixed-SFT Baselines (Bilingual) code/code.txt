@@ -1,0 +1,2 @@
+If you plan to run Mixed-SFT baselines, also install ms-swift following its official guide.
+
