@@ -152,11 +152,24 @@ If you plan to run Mixed-SFT baselines, also install ms-swift following its offi
 cd IA-AMA_code
 python train.py --config_json config.example.json
 ```
+Outputs (example):
 
-## 7. Citation
+```
+output_dir/
+└── epoch_xx/
+    ├── adapters/
+    │   ├── lora_en/
+    │   ├── lora_risk/
+    │   └── lora_cbt/
+    └── concept_alignment_layer.pth
+```
+Inference / Evaluation (Interactive)
 
-If you use these datasets or resources, please cite the corresponding papers:
+```
+python test.py \
+  --mode interactive \
+  --model_path /path/to/GLM-4-9B-Chat \
+  --epoch_dir /path/to/output_dir/epoch_xx \
+  --labels_json /path/to/labels.json
+```
 
-- MentalLLaMA
-- MentalGLM
-- This work
