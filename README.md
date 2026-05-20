@@ -1,13 +1,12 @@
 # IA-AMA
-The data and code for the paper: BiMentalGLM: An Instruction-Aware Asymmetric Modular Adapter Framework for Bilingual Mental Health Analysis
+The data and code for the paper: IA-AMA: An Instruction-Aware Asymmetric Modular Adapter Framework for Bilingual Mental Health Analysis
 
 This repository provides:
 - **Datasets** used in the paper (public links + release status).
 - **Expert few-shot seeds** for GPT-4 explanation prompting: `Expert_data/`
-- **Training and evaluation code** for BiMentalGLM (IA-AMA) and multiple baselines:
-  - IA-AMA (our method): `IA-AMA_code/`
-  - Cross-lingual small PLMs: `Multilingual_PLMs_Code/`
-  - Mixed-SFT bilingual baselines (ms-swift): `Mixed-SFT Baselines (Bilingual) code/`
+- **Training and evaluation code** for IA-AMA+SCLA (our method): `IA-AMA_code/`
+- **Cross-lingual small PLMs baselines**: `Multilingual_PLMs_Code/`
+- **Mixed-SFT bilingual baselines (ms-swift)**: `Mixed-SFT Baselines (Bilingual) code/`
 
 ---
 
@@ -86,11 +85,13 @@ All newly added datasets are annotated by trained annotators following standardi
 
 ## 5. Base Models
 
-The following pretrained model is used as base models for fine-tuning and evaluation:
+The following pretrained models are used as backbones for fine-tuning and evaluation:
 
-
-- **GLM-4-9B-Chat**  
-  https://huggingface.co/THUDM/glm-4-9b-chat
+| Model | Source |
+|-------|--------|
+| GLM-4-9B-Chat | https://huggingface.co/THUDM/glm-4-9b-chat |
+| LLaMA-3-8B-Chinese-Chat | https://huggingface.co/FlagAlpha/Llama3-Chinese-8B-Instruct |
+| Qwen3-8B | https://huggingface.co/Qwen/Qwen3-8B |
 
 ---
 
@@ -104,38 +105,32 @@ The following pretrained model is used as base models for fine-tuning and evalua
 ---
 
 
-
 # Environment
 
-We recommend **Python ≥ 3.9** with a **CUDA-enabled GPU** environment.
-
----
-
-### Dependencies Table
-
-| Category | Package | Recommended Version | Notes |
-|---|---|---|---|
-| Runtime | Python | ≥ 3.9 | Recommended via conda |
-| Deep Learning | PyTorch | ≥ 2.0 | Install the CUDA build matching your driver |
-| Transformers | transformers | ≥ 4.40 | Required for model/tokenizer loading |
-| LoRA | peft | ≥ 0.10 | Required for multi-adapter LoRA |
-| Tokenization | sentencepiece | latest | Often required by some tokenizers |
-| Utilities | numpy | latest | Basic dependency |
-| Progress | tqdm | latest | Progress bar |
-| Metrics (optional) | scikit-learn | ≥ 1.0 | Only required for Micro-F1 evaluation |
-| Baselines (optional) | ms-swift | latest | Only needed for Mixed-SFT baseline folder |
-
----
+We recommend **Python 3.10** with a **CUDA-enabled GPU** environment.
 
 ### Setup
 
 ```bash
-conda create -n ia_ama python=3.9
+conda create -n ia_ama python=3.10
 conda activate ia_ama
 
-pip install torch>=2.0 transformers>=4.40 peft>=0.10 tqdm numpy sentencepiece scikit-learn
-
+pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cu121
+pip install transformers==4.44.2 peft==0.12.0 accelerate==0.33.0
+pip install sentencepiece protobuf tiktoken
+pip install numpy scikit-learn matplotlib
 ```
+
+### Dependencies
+
+| Package | Version | Notes |
+|---------|---------|-------|
+| Python | 3.10 | |
+| PyTorch | 2.3.1+cu121 | CUDA 12.1 build |
+| transformers | 4.44.2 | For GLM-4; use ≥4.51 for Qwen3 |
+| peft | 0.12.0 | Required for adapter stacking via `set_adapter([list])` |
+| accelerate | 0.33.0 | |
+| scikit-learn | ≥1.0 | For F1 evaluation |
 
 If you plan to run Mixed-SFT baselines, also install ms-swift following its official guide: https://github.com/modelscope/ms-swift
 
@@ -144,32 +139,121 @@ If you plan to run Mixed-SFT baselines, also install ms-swift following its offi
 
 # How to Run (IA-AMA_code)
 
-> **Note:** All paths and hyperparameters are provided by the user via CLI/config to avoid exposing private settings.
-
-## 1) Training (IA-AMA)
+## Code Structure
 
 ```
+IA-AMA_code/
+├── routing.py                  # Deterministic instruction-aware router
+├── data_loader.py              # Expert-homogeneous batch sampler with DDP support
+├── train_stage1_sft.py         # Stage 1: Task expert SFT training
+├── train_stage2_cla.py         # Stage 2: Stacked CLA adapter training
+├── evaluate_ia_ama.py          # Evaluation with stacked adapter inference
+├── calibration_eval.py         # Clinical calibration (ECE / Brier / selective prediction)
+├── calibration_metrics.py      # Calibration utilities
+├── llm_classifier.py           # Completion-based classifier for calibration
+├── create_label_spaces.py      # Generate label space files for all 11 tasks
+└── convert_alignment_data.py   # Convert alignment pairs to training format
+```
+
+---
+
+## Step 0: Prepare Label Spaces
+
+```bash
 cd IA-AMA_code
-python train.py --config_json config.example.json
+python create_label_spaces.py --out_dir label_spaces
 ```
-Outputs (example):
 
-```
-output_dir/
-└── epoch_xx/
-    ├── adapters/
-    │   ├── lora_en/
-    │   ├── lora_risk/
-    │   └── lora_cbt/
-    └── concept_alignment_layer.pth
-```
-Inference / Evaluation (Interactive)
+## Step 1: Stage 1 — Task Expert SFT
 
+Train three asymmetric LoRA experts with instruction-aware routing.
+
+```bash
+python -m torch.distributed.run --nproc_per_node=2 train_stage1_sft.py \
+    --model_path /path/to/glm-4-9b-chat \
+    --data_dir traindata \
+    --out_dir ckpts/stage1 \
+    --lora_targets query_key_value dense \
+    --lora_en_r 16 --lora_risk_r 8 --lora_cbt_r 32 \
+    --batch_size 2 --grad_accum 16 \
+    --epochs 10 --max_length 1024 \
+    --lr 2e-4 --dtype bf16 --num_workers 0
 ```
-python evaluate.py \
-  --mode interactive \
-  --model_path /path/to/GLM-4-9B-Chat \
-  --epoch_dir /path/to/output_dir/epoch_xx \
-  --labels_json /path/to/labels.json
+
+Output structure:
 ```
+ckpts/stage1/epoch10/adapters/
+├── lora_en/
+├── lora_risk/
+└── lora_cbt/
+```
+
+## Step 2: Stage 2 — Stacked CLA Adapter Training
+
+Freeze all Stage 1 experts and train a shared cross-lingual alignment adapter.
+
+```bash
+python -m torch.distributed.run --nproc_per_node=2 train_stage2_cla.py \
+    --model_path /path/to/glm-4-9b-chat \
+    --stage1_dir ckpts/stage1/epoch10 \
+    --align_file alignment_pairs.json \
+    --out_dir ckpts/stage2 \
+    --lora_targets query_key_value dense \
+    --lora_cla_r 16 --lora_cla_alpha 32 \
+    --batch_size 4 --epochs 5 --lr 5e-5 \
+    --dtype bf16 --num_workers 0
+```
+
+## Step 3: Evaluation
+
+**Full IA-AMA+SCLA (with CLA):**
+
+```bash
+python evaluate_ia_ama.py \
+    --model_path /path/to/glm-4-9b-chat \
+    --ia_ama \
+    --adapter_en   ckpts/stage1/epoch10/adapters/lora_en \
+    --adapter_risk ckpts/stage1/epoch10/adapters/lora_risk \
+    --adapter_cbt  ckpts/stage1/epoch10/adapters/lora_cbt \
+    --adapter_cla  ckpts/stage2/epoch5/adapters/lora_cla \
+    --test_data_dir testdata \
+    --labels_dir label_spaces \
+    --out_dir results/eval \
+    --dtype bf16
+```
+
+**Ablation without CLA (omit `--adapter_cla`, no retraining needed):**
+
+```bash
+python evaluate_ia_ama.py \
+    --model_path /path/to/glm-4-9b-chat \
+    --ia_ama \
+    --adapter_en   ckpts/stage1/epoch10/adapters/lora_en \
+    --adapter_risk ckpts/stage1/epoch10/adapters/lora_risk \
+    --adapter_cbt  ckpts/stage1/epoch10/adapters/lora_cbt \
+    --test_data_dir testdata \
+    --labels_dir label_spaces \
+    --out_dir results/eval_no_cla \
+    --dtype bf16
+```
+
+## Step 4 (Optional): Clinical Calibration
+
+```bash
+python calibration_eval.py \
+    --backbone glm \
+    --model_path /path/to/glm-4-9b-chat \
+    --ia_ama \
+    --adapter_en   ckpts/stage1/epoch10/adapters/lora_en \
+    --adapter_risk ckpts/stage1/epoch10/adapters/lora_risk \
+    --adapter_cbt  ckpts/stage1/epoch10/adapters/lora_cbt \
+    --adapter_cla  ckpts/stage2/epoch5/adapters/lora_cla \
+    --val_file data/val_merged.json \
+    --test_file data/test_merged.json \
+    --labels_dir label_spaces \
+    --out_dir results/calibration
+```
+
+---
+
 
